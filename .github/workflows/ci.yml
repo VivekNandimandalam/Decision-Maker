@@ -1,0 +1,125 @@
+name: CI-CD
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Dependency scan
+        run: npm audit --audit-level=high
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install bandit pip-audit
+
+      - name: Django checks
+        run: python manage.py check
+
+      - name: Run tests
+        run: python manage.py test
+
+      - name: Static analysis
+        run: bandit -r polls -ll
+
+      - name: Security dependency scan
+        run: pip-audit
+
+  secret_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [frontend, backend, secret_scan]
+    runs-on: ubuntu-latest
+    env:
+      BACKEND_DEPLOY_HOOK_URL: ${{ secrets.BACKEND_DEPLOY_HOOK_URL }}
+      FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.FRONTEND_DEPLOY_HOOK_URL }}
+      BACKEND_HEALTHCHECK_URL: ${{ secrets.BACKEND_HEALTHCHECK_URL }}
+      FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+    steps:
+      - name: Trigger backend deployment hook
+        if: env.BACKEND_DEPLOY_HOOK_URL != ''
+        run: curl -fsSL -X POST "$BACKEND_DEPLOY_HOOK_URL"
+
+      - name: Trigger frontend deployment hook
+        if: env.FRONTEND_DEPLOY_HOOK_URL != ''
+        run: curl -fsSL -X POST "$FRONTEND_DEPLOY_HOOK_URL"
+
+      - name: Post-deploy backend health check
+        if: env.BACKEND_HEALTHCHECK_URL != ''
+        run: |
+          for i in {1..12}; do
+            if curl -fsSL "$BACKEND_HEALTHCHECK_URL" >/dev/null; then
+              echo "Backend health check passed"
+              exit 0
+            fi
+            echo "Waiting for backend deployment..."
+            sleep 10
+          done
+          echo "Backend health check failed"
+          exit 1
+
+      - name: Post-deploy frontend check
+        if: env.FRONTEND_URL != ''
+        run: |
+          curl -fsSL "$FRONTEND_URL" >/dev/null
+          echo "Frontend is reachable"

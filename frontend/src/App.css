@@ -1,0 +1,143 @@
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid #d8dfd9;
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(22, 37, 35, 0.08);
+}
+
+.panel-strong {
+  background: linear-gradient(135deg, #f6fff8 0%, #e8f5ef 100%);
+}
+
+h1,
+h2,
+p {
+  margin: 0 0 0.6rem;
+}
+
+.sub {
+  color: #39554a;
+}
+
+.status {
+  font-weight: 600;
+  color: #0d4732;
+}
+
+.field-error {
+  margin: -0.2rem 0 0;
+  font-size: 0.9rem;
+  color: #b32020;
+}
+
+.stack {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.full-row {
+  grid-column: 1 / -1;
+}
+
+input {
+  width: 100%;
+  border: 1px solid #b8c6bd;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: #fff;
+}
+
+select {
+  width: 100%;
+  border: 1px solid #b8c6bd;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: #fff;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.toggle-row input {
+  width: auto;
+}
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+  font-weight: 600;
+  background: #1f7a4a;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.danger {
+  background: #ad2e24;
+}
+
+button.secondary {
+  background: #5a6660;
+}
+
+.result-card {
+  margin-top: 1rem;
+  border: 1px solid #d5ddd8;
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: #fcfffd;
+}
+
+.result-card ul {
+  margin: 0.2rem 0 0;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid #d5ddd8;
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  background: #fcfffd;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 1rem 0.7rem 2rem;
+  }
+}
