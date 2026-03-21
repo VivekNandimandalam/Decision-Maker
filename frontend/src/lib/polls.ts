@@ -37,10 +37,47 @@ export type StoredPollOwnership = {
   creatorToken: string
 }
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || 'http://127.0.0.1:8000/api'
+function isLocalDevHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1'
+}
 
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://127.0.0.1:8000/ws'
+function getRuntimeApiBaseUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '')
+  if (configured) {
+    return configured
+  }
+
+  if (typeof window === 'undefined') {
+    return 'http://127.0.0.1:8000/api'
+  }
+
+  if (isLocalDevHost(window.location.hostname)) {
+    return 'http://127.0.0.1:8000/api'
+  }
+
+  return `${window.location.origin}/api`
+}
+
+function getRuntimeWsBaseUrl() {
+  const configured = import.meta.env.VITE_WS_BASE_URL?.replace(/\/$/, '')
+  if (configured) {
+    return configured
+  }
+
+  if (typeof window === 'undefined') {
+    return 'ws://127.0.0.1:8000/ws'
+  }
+
+  if (isLocalDevHost(window.location.hostname)) {
+    return 'ws://127.0.0.1:8000/ws'
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws`
+}
+
+export const API_BASE_URL = getRuntimeApiBaseUrl()
+export const WS_BASE_URL = getRuntimeWsBaseUrl()
 
 const STORAGE_KEY = 'decision-maker-owned-polls'
 

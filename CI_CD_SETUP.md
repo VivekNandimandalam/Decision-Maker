@@ -27,7 +27,7 @@ AWS deployment secrets (CD stage):
 - `EB_APPLICATION_NAME`
 - `EB_ENVIRONMENT_NAME`
 - `EB_DEPLOY_BUCKET`
-- `BACKEND_HEALTHCHECK_URL` (for example: `https://your-api-domain/api/health/`)
+- `BACKEND_HEALTHCHECK_URL` (for example: `http://your-eb-domain/api/health/` for single-instance EB, or `https://your-api-domain/api/health/` if HTTPS is configured)
 - `FRONTEND_URL` (for example: `https://your-frontend-domain/`)
 
 If AWS deploy secrets are not set, CI still runs and AWS deploy steps are skipped.
@@ -51,6 +51,17 @@ If AWS deploy secrets are not set, CI still runs and AWS deploy steps are skippe
 - `CSRF_COOKIE_SECURE=True`
 
 Redis must be reachable from Elastic Beanstalk for Channels realtime updates. The backend now serves ASGI through Daphne and expects WebSocket traffic to reach `/ws/`.
+
+## CloudFront behaviors required for the deployed frontend
+
+If the frontend is hosted on S3 + CloudFront and the backend is a single-instance Elastic Beanstalk environment without HTTPS, configure CloudFront with:
+
+- a default origin for the frontend S3 bucket
+- a second origin pointing to the Elastic Beanstalk domain over HTTP
+- behavior `/api/*` -> Elastic Beanstalk origin
+- behavior `/ws/*` -> Elastic Beanstalk origin
+
+With those behaviors in place, the frontend can call `/api` and `/ws` through the same CloudFront domain over HTTPS, avoiding mixed-content and CORS problems.
 
 ## Local checks before pushing
 
