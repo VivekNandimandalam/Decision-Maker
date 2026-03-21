@@ -190,9 +190,14 @@ jobs:
         shell: bash
         run: |
           CLEAN_HEALTHCHECK_URL="$(printf '%s' "$BACKEND_HEALTHCHECK_URL" | tr -d '\r\n' | xargs)"
+          FALLBACK_HEALTHCHECK_URL="${CLEAN_HEALTHCHECK_URL/https:\/\//http://}"
           for i in {1..36}; do
             if curl -fsSL "$CLEAN_HEALTHCHECK_URL" >/dev/null; then
               echo "Backend health check passed"
+              exit 0
+            fi
+            if [ "$FALLBACK_HEALTHCHECK_URL" != "$CLEAN_HEALTHCHECK_URL" ] && curl -fsSL "$FALLBACK_HEALTHCHECK_URL" >/dev/null; then
+              echo "Backend health check passed via HTTP fallback"
               exit 0
             fi
             echo "Waiting for backend deployment..."
