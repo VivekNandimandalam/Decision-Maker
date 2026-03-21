@@ -41,23 +41,30 @@ def _poll_to_payload(poll: Poll) -> dict:
         for option in options
     ]
 
-    vote_records = poll.vote_records.order_by("created_at").values("voter_name", "option_id", "created_at")
-    selections_by_voter: dict[tuple[str, str], list[str]] = {}
+    vote_records = poll.vote_records.order_by("created_at").values(
+        "voter_name",
+        "option_id",
+        "created_at",
+        "device_token_hash",
+    )
+    selections_by_voter: dict[str, dict] = {}
     latest_vote_at = None
     for record in vote_records:
         created_at = record["created_at"]
         latest_vote_at = created_at if latest_vote_at is None or created_at > latest_vote_at else latest_vote_at
-        key = (record["voter_name"], created_at.isoformat())
-        selections_by_voter.setdefault(key, []).append(str(record["option_id"]))
+        key = record["device_token_hash"]
+        if key not in selections_by_voter:
+            selections_by_voter[key] = {
+                "voter_name": record["voter_name"],
+                "option_ids": [],
+                "created_at": created_at,
+            }
 
-    voter_activity = [
-        {
-            "voter_name": voter_name,
-            "option_ids": option_ids,
-            "created_at": created_at,
-        }
-        for (voter_name, created_at), option_ids in selections_by_voter.items()
-    ]
+        selections_by_voter[key]["option_ids"].append(str(record["option_id"]))
+        if created_at > selections_by_voter[key]["created_at"]:
+            selections_by_voter[key]["created_at"] = created_at
+
+    voter_activity = list(selections_by_voter.values())
 
     total_votes = sum(option["votes"] for option in options_payload)
     return {
