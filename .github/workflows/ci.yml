@@ -91,29 +91,90 @@ jobs:
     needs: [frontend, backend, secret_scan]
     runs-on: ubuntu-latest
     env:
-      BACKEND_DEPLOY_HOOK_URL: ${{ secrets.BACKEND_DEPLOY_HOOK_URL }}
-      FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.FRONTEND_DEPLOY_HOOK_URL }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      S3_BUCKET_FRONTEND: ${{ secrets.S3_BUCKET_FRONTEND }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+      EB_APPLICATION_NAME: ${{ secrets.EB_APPLICATION_NAME }}
+      EB_ENVIRONMENT_NAME: ${{ secrets.EB_ENVIRONMENT_NAME }}
+      EB_DEPLOY_BUCKET: ${{ secrets.EB_DEPLOY_BUCKET }}
       BACKEND_HEALTHCHECK_URL: ${{ secrets.BACKEND_HEALTHCHECK_URL }}
       FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
     steps:
-      - name: Trigger backend deployment hook
-        if: env.BACKEND_DEPLOY_HOOK_URL != ''
-        run: curl -fsSL -X POST "$BACKEND_DEPLOY_HOOK_URL"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Trigger frontend deployment hook
-        if: env.FRONTEND_DEPLOY_HOOK_URL != ''
-        run: curl -fsSL -X POST "$FRONTEND_DEPLOY_HOOK_URL"
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_REGION != '' && env.AWS_ROLE_TO_ASSUME != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy frontend to S3
+        if: env.S3_BUCKET_FRONTEND != '' && env.AWS_REGION != ''
+        run: |
+          aws s3 sync frontend/dist "s3://$S3_BUCKET_FRONTEND" --delete
+
+      - name: Invalidate CloudFront cache
+        if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: |
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+
+      - name: Package backend application
+        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        run: |
+          VERSION="${GITHUB_SHA::12}"
+          ZIP_NAME="backend-$VERSION.zip"
+          cd backend
+          zip -r "../$ZIP_NAME" . -x ".venv/*" "db.sqlite3" "__pycache__/*" "*.pyc"
+          cd ..
+          echo "EB_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "EB_ZIP=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload backend bundle to S3
+        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        run: |
+          if [ -z "$EB_ZIP" ] || [ -z "$EB_VERSION" ]; then
+            echo "Backend package metadata missing; skipping backend upload."
+            exit 0
+          fi
+          aws s3 cp "$EB_ZIP" "s3://$EB_DEPLOY_BUCKET/$EB_ZIP"
+
+      - name: Create Elastic Beanstalk application version
+        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        run: |
+          if [ -z "$EB_ZIP" ] || [ -z "$EB_VERSION" ]; then
+            echo "Backend package metadata missing; skipping EB application version creation."
+            exit 0
+          fi
+          aws elasticbeanstalk create-application-version \
+            --application-name "$EB_APPLICATION_NAME" \
+            --version-label "$EB_VERSION" \
+            --source-bundle S3Bucket="$EB_DEPLOY_BUCKET",S3Key="$EB_ZIP" \
+            --auto-create-application
+
+      - name: Deploy Elastic Beanstalk environment
+        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        run: |
+          if [ -z "$EB_VERSION" ]; then
+            echo "Version label missing; skipping EB environment update."
+            exit 0
+          fi
+          aws elasticbeanstalk update-environment \
+            --environment-name "$EB_ENVIRONMENT_NAME" \
+            --version-label "$EB_VERSION"
 
       - name: Post-deploy backend health check
         if: env.BACKEND_HEALTHCHECK_URL != ''
         run: |
-          for i in {1..12}; do
+          for i in {1..36}; do
             if curl -fsSL "$BACKEND_HEALTHCHECK_URL" >/dev/null; then
               echo "Backend health check passed"
               exit 0
             fi
             echo "Waiting for backend deployment..."
-            sleep 10
+            sleep 15
           done
           echo "Backend health check failed"
           exit 1
