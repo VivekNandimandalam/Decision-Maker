@@ -200,9 +200,11 @@ jobs:
 
       - name: Post-deploy backend health check
         if: env.BACKEND_HEALTHCHECK_URL != ''
+        shell: bash
         run: |
+          CLEAN_HEALTHCHECK_URL="$(printf '%s' "$BACKEND_HEALTHCHECK_URL" | tr -d '\r\n' | xargs)"
           for i in {1..36}; do
-            if curl -fsSL "$BACKEND_HEALTHCHECK_URL" >/dev/null; then
+            if curl -fsSL "$CLEAN_HEALTHCHECK_URL" >/dev/null; then
               echo "Backend health check passed"
               exit 0
             fi
