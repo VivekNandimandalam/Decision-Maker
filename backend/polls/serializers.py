@@ -1,6 +1,11 @@
 from rest_framework import serializers
 from django.utils import timezone
 
+from datetime import timedelta
+
+
+MIN_EXPIRATION_DELTA = timedelta(minutes=1)
+
 
 class PollCreateSerializer(serializers.Serializer):
     question = serializers.CharField(min_length=1, max_length=255)
@@ -27,8 +32,8 @@ class PollCreateSerializer(serializers.Serializer):
         return cleaned
 
     def validate_expires_at(self, value):
-        if value <= timezone.now():
-            raise serializers.ValidationError('Expiration time must be in the future.')
+        if value < timezone.now() + MIN_EXPIRATION_DELTA:
+            raise serializers.ValidationError('Expiration time must be at least 1 minute in the future.')
         return value
 
 
@@ -58,17 +63,24 @@ class PollUpdateSerializer(serializers.Serializer):
         return cleaned
 
     def validate_expires_at(self, value):
-        if value <= timezone.now():
-            raise serializers.ValidationError('Expiration time must be in the future.')
+        if value < timezone.now() + MIN_EXPIRATION_DELTA:
+            raise serializers.ValidationError('Expiration time must be at least 1 minute in the future.')
         return value
 
 
 class VoteSerializer(serializers.Serializer):
+    voter_name = serializers.CharField(min_length=1, max_length=120)
     option_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
         max_length=20,
     )
+
+    def validate_voter_name(self, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError('Voter name is required.')
+        return cleaned
 
     def validate_option_ids(self, values):
         unique_values = list(dict.fromkeys(values))

@@ -26,8 +26,13 @@ class PollConsumer(AsyncWebsocketConsumer):
         # This consumer is broadcast-only; clients do not send events.
         return
 
-    async def poll_updated(self, event):
-        await self.send(text_data=json.dumps({'type': 'poll.updated', 'payload': event['payload']}, default=str))
+    async def poll_event(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {"type": event["event_type"], "payload": event["payload"]},
+                default=str,
+            )
+        )
 
     @staticmethod
     async def _poll_exists(poll_id: str) -> bool:
