@@ -1,20 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
 
-type PollOption = {
-  id: string
-  text: string
-  votes: number
-}
-
-type CreatedPoll = {
-  id: string
-  question: string
-  multi_select: boolean
-  expires_at: string
-  options: PollOption[]
-  share_url: string
-  creator_token?: string
-}
+import { apiRequest, buildShareLink, CreatedPoll, saveOwnedPoll } from '../lib/polls'
 
 type FieldErrors = {
   question?: string
@@ -25,22 +11,21 @@ type FieldErrors = {
 
 type CreatePollProps = {
   onNavigateToPoll: (pollId: string) => void
+  onNavigateToDashboard: () => void
 }
 
 const MIN_OPTIONS = 2
 const MAX_OPTIONS = 20
 const MAX_QUESTION_LENGTH = 255
 const MAX_OPTION_LENGTH = 255
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ||
-  'http://127.0.0.1:8000/api'
+const MIN_EXPIRATION_MS = 60_000
 
 const expirationChoices = [
+  { value: '1m', label: '1 minute' },
   { value: '5m', label: '5 minutes' },
+  { value: '10m', label: '10 minutes' },
   { value: '30m', label: '30 minutes' },
   { value: '1h', label: '1 hour' },
-  { value: '1d', label: '1 day' },
   { value: 'custom', label: 'Custom date and time' },
 ]
 
@@ -55,14 +40,16 @@ function computeExpiresAt(choice: string, customDatetime: string): string | null
   }
 
   const expiry = new Date(now)
-  if (choice === '5m') {
+  if (choice === '1m') {
+    expiry.setMinutes(expiry.getMinutes() + 1)
+  } else if (choice === '5m') {
     expiry.setMinutes(expiry.getMinutes() + 5)
+  } else if (choice === '10m') {
+    expiry.setMinutes(expiry.getMinutes() + 10)
   } else if (choice === '30m') {
     expiry.setMinutes(expiry.getMinutes() + 30)
   } else if (choice === '1h') {
     expiry.setHours(expiry.getHours() + 1)
-  } else if (choice === '1d') {
-    expiry.setDate(expiry.getDate() + 1)
   } else {
     return null
   }
@@ -70,12 +57,12 @@ function computeExpiresAt(choice: string, customDatetime: string): string | null
   return expiry.toISOString()
 }
 
-export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
+export function CreatePoll({ onNavigateToPoll, onNavigateToDashboard }: CreatePollProps) {
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState<string[]>(['', ''])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [multiSelect, setMultiSelect] = useState(false)
-  const [expirationChoice, setExpirationChoice] = useState('30m')
+  const [expirationChoice, setExpirationChoice] = useState('10m')
   const [customDatetime, setCustomDatetime] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({ optionFields: ['', ''] })
   const [serverMessage, setServerMessage] = useState('')
@@ -90,19 +77,13 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
   )
 
   const validate = (): boolean => {
-    const nextErrors: FieldErrors = {
-      optionFields: options.map(() => ''),
-    }
-
+    const nextErrors: FieldErrors = { optionFields: options.map(() => '') }
     const trimmedQuestion = question.trim()
+
     if (!trimmedQuestion) {
       nextErrors.question = 'Question is required.'
     } else if (trimmedQuestion.length > MAX_QUESTION_LENGTH) {
       nextErrors.question = `Question cannot exceed ${MAX_QUESTION_LENGTH} characters.`
-    }
-
-    if (options.length < MIN_OPTIONS || options.length > MAX_OPTIONS) {
-      nextErrors.options = `Options must be between ${MIN_OPTIONS} and ${MAX_OPTIONS}.`
     }
 
     options.forEach((option, index) => {
@@ -114,15 +95,17 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
       }
     })
 
-    if (cleanedOptions.length < MIN_OPTIONS) {
-      nextErrors.options = `At least ${MIN_OPTIONS} non-empty options are required.`
+    if (cleanedOptions.length < MIN_OPTIONS || cleanedOptions.length > MAX_OPTIONS) {
+      nextErrors.options = `Options must be between ${MIN_OPTIONS} and ${MAX_OPTIONS}.`
+    } else if (new Set(cleanedOptions).size !== cleanedOptions.length) {
+      nextErrors.options = 'Options must be unique.'
     }
 
     const expiresAtIso = computeExpiresAt(expirationChoice, customDatetime)
     if (!expiresAtIso) {
       nextErrors.expiration = 'Select a valid expiration time.'
-    } else if (new Date(expiresAtIso).getTime() <= Date.now()) {
-      nextErrors.expiration = 'Expiration must be in the future.'
+    } else if (new Date(expiresAtIso).getTime() - Date.now() < MIN_EXPIRATION_MS) {
+      nextErrors.expiration = 'Expiration must be at least 1 minute in the future.'
     }
 
     const hasErrors =
@@ -139,6 +122,7 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
     if (!canAddOption) {
       return
     }
+
     setOptions((prev) => [...prev, ''])
     setErrors((prev) => ({ ...prev, optionFields: [...prev.optionFields, ''] }))
   }
@@ -147,6 +131,7 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
     if (!canRemoveOption) {
       return
     }
+
     setOptions((prev) => prev.filter((_, optionIndex) => optionIndex !== index))
     setErrors((prev) => ({
       ...prev,
@@ -180,26 +165,19 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
 
     setIsSubmitting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/polls/create/`, {
+      const payload = await apiRequest<CreatedPoll>('/polls/create/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           question: question.trim(),
-          options: options.map((item) => item.trim()),
+          options: cleanedOptions,
           multi_select: multiSelect,
           expires_at: expiresAtIso,
         }),
       })
 
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(payload.detail || 'Failed to create poll.')
-      }
-
-      setCreatedPoll(payload as CreatedPoll)
+      saveOwnedPoll(payload)
+      setCreatedPoll(payload)
       setServerMessage('Poll created successfully.')
-      alert('Poll created successfully!')
       setQuestion('')
       setOptions(['', ''])
       setErrors({ optionFields: ['', ''] })
@@ -214,14 +192,23 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
     if (!createdPoll) {
       return
     }
-    const fullLink = `${window.location.origin}/poll/${createdPoll.id}/`
-    await navigator.clipboard.writeText(fullLink)
+
+    await navigator.clipboard.writeText(buildShareLink(createdPoll.id))
     setServerMessage('Share link copied to clipboard.')
   }
 
   return (
     <section className="panel">
-      <h2>Create Poll</h2>
+      <div className="section-heading">
+        <div>
+          <h2>Create Poll</h2>
+          <p className="sub">Build a named, realtime poll and keep management on this device only.</p>
+        </div>
+        <button type="button" className="secondary" onClick={onNavigateToDashboard}>
+          My Polls
+        </button>
+      </div>
+
       <form onSubmit={onSubmit} className="stack" noValidate>
         <label>
           Poll Question
@@ -253,7 +240,7 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
                 onClick={() => removeOption(index)}
                 disabled={!canRemoveOption}
               >
-                Remove Option
+                Remove
               </button>
               {errors.optionFields[index] ? (
                 <p className="field-error full-row">{errors.optionFields[index]}</p>
@@ -270,7 +257,7 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
             checked={multiSelect}
             onChange={(event) => setMultiSelect(event.target.checked)}
           />
-          <span>Enable multiple selections?</span>
+          <span>Allow multiple selections</span>
         </label>
 
         <label>
@@ -319,8 +306,9 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
         <div className="result-card">
           <h3>Share Poll</h3>
           <p>
-            Link: <a href={`/poll/${createdPoll.id}/`}>{`${window.location.origin}/poll/${createdPoll.id}/`}</a>
+            Link: <a href={buildShareLink(createdPoll.id)}>{buildShareLink(createdPoll.id)}</a>
           </p>
+          <p>This device can now manage the poll from the dashboard.</p>
           <div className="row">
             <button type="button" onClick={copyShareLink}>
               Copy Link
@@ -328,8 +316,10 @@ export function CreatePoll({ onNavigateToPoll }: CreatePollProps) {
             <button type="button" onClick={() => onNavigateToPoll(createdPoll.id)}>
               Open Voting Page
             </button>
+            <button type="button" className="secondary" onClick={onNavigateToDashboard}>
+              Open My Polls
+            </button>
           </div>
-          {createdPoll.creator_token ? <p>Creator Token: {createdPoll.creator_token}</p> : null}
         </div>
       ) : null}
     </section>

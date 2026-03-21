@@ -47,6 +47,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      DB_ENGINE: sqlite
     defaults:
       run:
         working-directory: backend

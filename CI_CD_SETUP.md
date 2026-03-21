@@ -19,13 +19,38 @@ On push to `main`:
 
 Set these in GitHub repository settings -> Secrets and variables -> Actions.
 
-Optional deployment secrets (CD stage):
-- `BACKEND_DEPLOY_HOOK_URL`
-- `FRONTEND_DEPLOY_HOOK_URL`
+AWS deployment secrets (CD stage):
+- `AWS_REGION`
+- `AWS_ROLE_TO_ASSUME`
+- `S3_BUCKET_FRONTEND`
+- `CLOUDFRONT_DISTRIBUTION_ID`
+- `EB_APPLICATION_NAME`
+- `EB_ENVIRONMENT_NAME`
+- `EB_DEPLOY_BUCKET`
 - `BACKEND_HEALTHCHECK_URL` (for example: `https://your-api-domain/api/health/`)
 - `FRONTEND_URL` (for example: `https://your-frontend-domain/`)
 
-If deploy secrets are not set, CI still runs and deploy steps are skipped.
+If AWS deploy secrets are not set, CI still runs and AWS deploy steps are skipped.
+
+## Required Elastic Beanstalk environment variables
+
+- `DJANGO_SECRET_KEY`
+- `DJANGO_DEBUG=False`
+- `DJANGO_ALLOWED_HOSTS`
+- `CORS_ALLOWED_ORIGINS`
+- `CSRF_TRUSTED_ORIGINS`
+- `DB_ENGINE=postgres`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_HOST`
+- `DB_PORT`
+- `DB_SSLMODE=require`
+- `REDIS_URL`
+- `SESSION_COOKIE_SECURE=True`
+- `CSRF_COOKIE_SECURE=True`
+
+Redis must be reachable from Elastic Beanstalk for Channels realtime updates. The backend now serves ASGI through Daphne and expects WebSocket traffic to reach `/ws/`.
 
 ## Local checks before pushing
 

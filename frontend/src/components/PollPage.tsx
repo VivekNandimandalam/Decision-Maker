@@ -1,69 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
 
-type PollOption = {
-  id: string
-  text: string
-  votes: number
-}
-
-type Poll = {
-  id: string
-  question: string
-  multi_select: boolean
-  expires_at: string
-  is_expired: boolean
-  options: PollOption[]
-  total_votes: number
-  share_url: string
-}
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ||
-  'http://127.0.0.1:8000/api'
-
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://127.0.0.1:8000/ws'
-
-function formatTimeRemaining(expiresAt: string): string {
-  const nowMs = Date.now()
-  const endMs = new Date(expiresAt).getTime()
-  const diffMs = Math.max(0, endMs - nowMs)
-  const totalSeconds = Math.floor(diffMs / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  return `${hours}h ${minutes}m ${seconds}s`
-}
+import { apiRequest, formatTimeRemaining, Poll, WS_BASE_URL } from '../lib/polls'
 
 type PollPageProps = {
   pollId: string
+  onNavigateToDashboard: () => void
 }
 
-export function PollPage({ pollId }: PollPageProps) {
+export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
   const [poll, setPoll] = useState<Poll | null>(null)
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   const [message, setMessage] = useState('Loading poll...')
   const [timeRemaining, setTimeRemaining] = useState('')
   const [wsState, setWsState] = useState('Disconnected')
+  const [voterName, setVoterName] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const canVote = useMemo(() => !!poll && !poll.is_expired, [poll])
+  const canVote = useMemo(
+    () => !!poll && !poll.is_expired && voterName.trim().length > 0,
+    [poll, voterName],
+  )
 
   useEffect(() => {
     let mounted = true
 
     const loadPoll = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/polls/${pollId}/`, {
-          credentials: 'include',
-        })
-        const payload = await response.json()
-        if (!response.ok) {
-          throw new Error(payload.detail || 'Unable to fetch poll.')
-        }
+        const payload = await apiRequest<Poll>(`/polls/${pollId}/`)
         if (!mounted) {
           return
         }
-        setPoll(payload as Poll)
-        setMessage('Poll loaded successfully.')
+        setPoll(payload)
+        setMessage(payload.is_expired ? 'This poll has expired.' : 'Poll loaded successfully.')
       } catch (error) {
         if (!mounted) {
           return
@@ -83,35 +51,35 @@ export function PollPage({ pollId }: PollPageProps) {
       return
     }
 
-    const interval = setInterval(() => {
-      setTimeRemaining(formatTimeRemaining(poll.expires_at))
+    const refreshTime = () => setTimeRemaining(formatTimeRemaining(poll.expires_at))
+    refreshTime()
+
+    const interval = window.setInterval(() => {
+      refreshTime()
+      if (new Date(poll.expires_at).getTime() <= Date.now()) {
+        setPoll((prev) => (prev ? { ...prev, is_expired: true } : prev))
+      }
     }, 1000)
 
-    setTimeRemaining(formatTimeRemaining(poll.expires_at))
-    return () => clearInterval(interval)
+    return () => window.clearInterval(interval)
   }, [poll])
 
   useEffect(() => {
     const socket = new WebSocket(`${WS_BASE_URL}/polls/${pollId}/`)
 
-    socket.onopen = () => {
-      setWsState('Connected')
-    }
-
-    socket.onclose = () => {
-      setWsState('Disconnected')
-    }
-
-    socket.onerror = () => {
-      setWsState('Error')
-    }
-
+    socket.onopen = () => setWsState('Connected')
+    socket.onclose = () => setWsState('Disconnected')
+    socket.onerror = () => setWsState('Error')
     socket.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(event.data) as { type?: string; payload?: Poll }
-        if (parsed.type === 'poll.updated' && parsed.payload) {
-          setPoll(parsed.payload)
-          setMessage('Live update received.')
+        const parsed = JSON.parse(event.data) as { type?: string; payload?: Poll | { id: string } }
+        if ((parsed.type === 'poll.updated' || parsed.type === 'poll.expired') && parsed.payload) {
+          setPoll(parsed.payload as Poll)
+          setMessage(parsed.type === 'poll.expired' ? 'Poll expired.' : 'Live update received.')
+        }
+        if (parsed.type === 'poll.deleted') {
+          setMessage('This poll has been deleted by its creator.')
+          setPoll(null)
         }
       } catch {
         setMessage('Received malformed realtime message.')
@@ -146,29 +114,39 @@ export function PollPage({ pollId }: PollPageProps) {
       setMessage('Select at least one option to vote.')
       return
     }
+    if (!voterName.trim()) {
+      setMessage('Enter your name before voting.')
+      return
+    }
 
+    setIsSubmitting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/polls/${poll.id}/vote/`, {
+      const payload = await apiRequest<Poll>(`/polls/${poll.id}/vote/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ option_ids: selectedOptionIds }),
+        body: JSON.stringify({
+          voter_name: voterName.trim(),
+          option_ids: selectedOptionIds,
+        }),
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(payload.detail || 'Vote submission failed.')
-      }
-      setPoll(payload as Poll)
+      setPoll(payload)
       setMessage('Vote submitted successfully.')
+      setSelectedOptionIds([])
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Vote submission failed.')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   if (!poll) {
     return (
       <section className="panel">
-        <h2>Poll</h2>
+        <div className="section-heading">
+          <h2>Poll</h2>
+          <button type="button" className="secondary" onClick={onNavigateToDashboard}>
+            My Polls
+          </button>
+        </div>
         <p>{message}</p>
       </section>
     )
@@ -176,11 +154,32 @@ export function PollPage({ pollId }: PollPageProps) {
 
   return (
     <section className="panel">
-      <h2>{poll.question}</h2>
-      <p>Realtime status: {wsState}</p>
-      <p>Selection mode: {poll.multi_select ? 'Multiple options allowed' : 'Single option only'}</p>
-      <p>Time remaining: {timeRemaining}</p>
-      <p>Total votes: {poll.total_votes}</p>
+      <div className="section-heading">
+        <div>
+          <h2>{poll.question}</h2>
+          <p className="sub">Realtime status: {wsState}</p>
+        </div>
+        <button type="button" className="secondary" onClick={onNavigateToDashboard}>
+          My Polls
+        </button>
+      </div>
+
+      <div className="meta-grid">
+        <p>Selection mode: {poll.multi_select ? 'Multiple options allowed' : 'Single option only'}</p>
+        <p>Time remaining: {timeRemaining}</p>
+        <p>Total votes: {poll.total_votes}</p>
+        <p>Voters: {poll.vote_record_count}</p>
+      </div>
+
+      <label>
+        Your Name
+        <input
+          value={voterName}
+          onChange={(event) => setVoterName(event.target.value)}
+          placeholder="Enter your name before voting"
+          disabled={poll.is_expired}
+        />
+      </label>
 
       <div className="stack">
         {poll.options.map((option) => (
@@ -190,7 +189,7 @@ export function PollPage({ pollId }: PollPageProps) {
               name="vote-option"
               checked={selectedOptionIds.includes(option.id)}
               onChange={() => toggleOption(option.id)}
-              disabled={!canVote}
+              disabled={poll.is_expired}
             />
             <span>{option.text}</span>
             <strong>{option.votes}</strong>
@@ -199,9 +198,27 @@ export function PollPage({ pollId }: PollPageProps) {
       </div>
 
       <div className="row">
-        <button type="button" onClick={submitVote} disabled={!canVote}>
-          {poll.is_expired ? 'Poll expired' : 'Submit Vote'}
+        <button type="button" onClick={submitVote} disabled={!canVote || isSubmitting}>
+          {poll.is_expired ? 'Poll expired' : isSubmitting ? 'Submitting...' : 'Submit Vote'}
         </button>
+      </div>
+
+      <div className="result-card">
+        <h3>Recent voters</h3>
+        {poll.recent_voters.length === 0 ? (
+          <p>No votes yet.</p>
+        ) : (
+          <div className="stack">
+            {poll.recent_voters
+              .slice()
+              .reverse()
+              .map((entry) => (
+                <p key={`${entry.voter_name}-${entry.created_at}`}>
+                  {entry.voter_name} voted at {new Date(entry.created_at).toLocaleString()}
+                </p>
+              ))}
+          </div>
+        )}
       </div>
 
       <p className="status">{message}</p>
