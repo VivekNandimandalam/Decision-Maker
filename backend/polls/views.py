@@ -102,12 +102,29 @@ def _broadcast(group: str, event_type: str, payload: dict) -> None:
     )
 
 
+def _safe_broadcast(group: str, event_type: str, payload: dict, log_message: str) -> None:
+    try:
+        _broadcast(group, event_type, payload)
+    except Exception:
+        logger.exception(log_message)
+
+
 def _broadcast_poll_update(poll: Poll) -> None:
-    _broadcast(f"poll_{poll.id}", "poll.updated", _poll_to_payload(poll))
+    _safe_broadcast(
+        f"poll_{poll.id}",
+        "poll.updated",
+        _poll_to_payload(poll),
+        "Poll %s was updated but the realtime update broadcast failed." % poll.id,
+    )
 
 
 def _broadcast_poll_deleted(poll_id: str) -> None:
-    _broadcast(f"poll_{poll_id}", "poll.deleted", {"id": str(poll_id)})
+    _safe_broadcast(
+        f"poll_{poll_id}",
+        "poll.deleted",
+        {"id": str(poll_id)},
+        "Poll %s was deleted but the realtime delete broadcast failed." % poll_id,
+    )
 
 
 def _mark_expired_if_needed(poll: Poll) -> bool:
@@ -117,7 +134,12 @@ def _mark_expired_if_needed(poll: Poll) -> bool:
     poll.expired_notified_at = timezone.now()
     poll.save(update_fields=["expired_notified_at", "updated_at"])
     poll.refresh_from_db()
-    _broadcast(f"poll_{poll.id}", "poll.expired", _poll_to_payload(poll))
+    _safe_broadcast(
+        f"poll_{poll.id}",
+        "poll.expired",
+        _poll_to_payload(poll),
+        "Poll %s expired but the realtime expiration broadcast failed." % poll.id,
+    )
     return True
 
 
@@ -244,10 +266,7 @@ class PollDetailView(APIView):
 
         poll_identifier = str(poll.id)
         poll.delete()
-        try:
-            _broadcast_poll_deleted(poll_identifier)
-        except Exception:
-            logger.exception("Poll %s was deleted but the realtime delete broadcast failed.", poll_identifier)
+        _broadcast_poll_deleted(poll_identifier)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

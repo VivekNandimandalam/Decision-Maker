@@ -85,6 +85,22 @@ class PollApiTests(TestCase):
         )
         self.assertEqual(second_vote.status_code, 409)
 
+    def test_vote_succeeds_even_if_realtime_broadcast_fails(self):
+        create_response = self._create_poll()
+        payload = create_response.json()
+        poll_id = payload["id"]
+        option_id = payload["options"][0]["id"]
+
+        with patch("polls.views._broadcast", side_effect=RuntimeError("channel failure")):
+            vote_response = self.client.post(
+                f"/api/polls/{poll_id}/vote/",
+                {"voter_name": "Alice", "option_ids": [option_id]},
+                format="json",
+            )
+
+        self.assertEqual(vote_response.status_code, 201)
+        self.assertEqual(vote_response.json()["total_votes"], 1)
+
     def test_multi_select_poll_accepts_multiple_options(self):
         create_response = self._create_poll(
             question="Choose your favorite fruits",
@@ -162,7 +178,7 @@ class PollApiTests(TestCase):
         create_response = self._create_poll()
         payload = create_response.json()
 
-        with patch("polls.views._broadcast_poll_deleted", side_effect=RuntimeError("channel failure")):
+        with patch("polls.views._broadcast", side_effect=RuntimeError("channel failure")):
             delete_response = self.client.delete(
                 f"/api/polls/{payload['id']}/?token={payload['creator_token']}"
             )
