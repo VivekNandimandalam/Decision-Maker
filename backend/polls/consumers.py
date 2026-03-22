@@ -1,7 +1,7 @@
 import json
 
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
-from django.core.exceptions import ObjectDoesNotExist
 
 from .models import Poll
 
@@ -35,8 +35,6 @@ class PollConsumer(AsyncWebsocketConsumer):
         )
 
     @staticmethod
-    async def _poll_exists(poll_id: str) -> bool:
-        try:
-            return await Poll.objects.filter(id=poll_id).aexists()
-        except ObjectDoesNotExist:
-            return False
+    @database_sync_to_async
+    def _poll_exists(poll_id: str) -> bool:
+        return Poll.objects.filter(id=poll_id).exists()
