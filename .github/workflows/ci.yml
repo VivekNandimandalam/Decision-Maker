@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
 
 concurrency:
   group: ci-cd-${{ github.ref }}
@@ -59,7 +60,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -84,13 +85,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [frontend, backend, secret_scan]
+    needs:
+      - frontend
+      - backend
+      - secret_scan
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -133,57 +139,44 @@ jobs:
 
       - name: Deploy frontend to S3
         if: env.S3_BUCKET_FRONTEND != '' && env.AWS_REGION != ''
-        run: |
-          aws s3 sync frontend/dist "s3://$S3_BUCKET_FRONTEND" --delete
+        run: aws s3 sync frontend/dist "s3://$S3_BUCKET_FRONTEND" --delete
 
       - name: Invalidate CloudFront cache
         if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
-        run: |
-          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+        run: aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
 
       - name: Package backend application
+        id: package_backend
         if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        shell: bash
         run: |
           VERSION="${GITHUB_SHA::12}"
           ZIP_NAME="backend-$VERSION.zip"
           cd backend
           zip -r "../$ZIP_NAME" . -x ".venv/*" "db.sqlite3" "__pycache__/*" "*.pyc"
           cd ..
-          echo "EB_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "EB_ZIP=$ZIP_NAME" >> $GITHUB_ENV
+          echo "eb_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "eb_zip=$ZIP_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload backend bundle to S3
-        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
-        run: |
-          if [ -z "$EB_ZIP" ] || [ -z "$EB_VERSION" ]; then
-            echo "Backend package metadata missing; skipping backend upload."
-            exit 0
-          fi
-          aws s3 cp "$EB_ZIP" "s3://$EB_DEPLOY_BUCKET/$EB_ZIP"
+        if: steps.package_backend.outputs.eb_version != '' && steps.package_backend.outputs.eb_zip != ''
+        run: aws s3 cp "${{ steps.package_backend.outputs.eb_zip }}" "s3://$EB_DEPLOY_BUCKET/${{ steps.package_backend.outputs.eb_zip }}"
 
       - name: Create Elastic Beanstalk application version
-        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        if: steps.package_backend.outputs.eb_version != '' && steps.package_backend.outputs.eb_zip != ''
         run: |
-          if [ -z "$EB_ZIP" ] || [ -z "$EB_VERSION" ]; then
-            echo "Backend package metadata missing; skipping EB application version creation."
-            exit 0
-          fi
           aws elasticbeanstalk create-application-version \
             --application-name "$EB_APPLICATION_NAME" \
-            --version-label "$EB_VERSION" \
-            --source-bundle S3Bucket="$EB_DEPLOY_BUCKET",S3Key="$EB_ZIP" \
+            --version-label "${{ steps.package_backend.outputs.eb_version }}" \
+            --source-bundle S3Bucket="$EB_DEPLOY_BUCKET",S3Key="${{ steps.package_backend.outputs.eb_zip }}" \
             --auto-create-application
 
       - name: Deploy Elastic Beanstalk environment
-        if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
+        if: steps.package_backend.outputs.eb_version != ''
         run: |
-          if [ -z "$EB_VERSION" ]; then
-            echo "Version label missing; skipping EB environment update."
-            exit 0
-          fi
           aws elasticbeanstalk update-environment \
             --environment-name "$EB_ENVIRONMENT_NAME" \
-            --version-label "$EB_VERSION"
+            --version-label "${{ steps.package_backend.outputs.eb_version }}"
 
       - name: Post-deploy backend health check
         if: env.BACKEND_HEALTHCHECK_URL != ''
