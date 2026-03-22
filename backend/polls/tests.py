@@ -4,6 +4,7 @@ from channels.layers import get_channel_layer
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from .models import Poll
 
@@ -156,6 +157,18 @@ class PollApiTests(TestCase):
 
         allowed_delete = self.client.delete(f"/api/polls/{poll_id}/?token={creator_token}")
         self.assertEqual(allowed_delete.status_code, 204)
+
+    def test_delete_succeeds_even_if_realtime_broadcast_fails(self):
+        create_response = self._create_poll()
+        payload = create_response.json()
+
+        with patch("polls.views._broadcast_poll_deleted", side_effect=RuntimeError("channel failure")):
+            delete_response = self.client.delete(
+                f"/api/polls/{payload['id']}/?token={payload['creator_token']}"
+            )
+
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(Poll.objects.filter(id=payload["id"]).exists())
 
     def test_expired_poll_marks_notification_timestamp(self):
         create_response = self._create_poll(expires_at=(timezone.now() + timedelta(minutes=1, seconds=1)).isoformat())

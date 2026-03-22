@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from html import escape
 
@@ -16,6 +17,8 @@ from rest_framework.views import APIView
 
 from .models import Poll, PollOption, VoteRecord
 from .serializers import PollCreateSerializer, PollUpdateSerializer, VoteSerializer
+
+logger = logging.getLogger(__name__)
 
 
 def _hash_token(raw_token: str) -> str:
@@ -241,7 +244,10 @@ class PollDetailView(APIView):
 
         poll_identifier = str(poll.id)
         poll.delete()
-        _broadcast_poll_deleted(poll_identifier)
+        try:
+            _broadcast_poll_deleted(poll_identifier)
+        except Exception:
+            logger.exception("Poll %s was deleted but the realtime delete broadcast failed.", poll_identifier)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
