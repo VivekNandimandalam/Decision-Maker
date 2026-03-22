@@ -318,7 +318,10 @@ class PollVoteView(APIView):
 
         with transaction.atomic():
             if VoteRecord.objects.filter(poll=poll, device_token_hash=device_token_hash).exists():
-                return Response({"detail": "This device has already voted on this poll."}, status=status.HTTP_409_CONFLICT)
+                return Response(
+                    {"detail": "You have already submitted your vote."},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             VoteRecord.objects.bulk_create(
                 [

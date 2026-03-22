@@ -84,6 +84,7 @@ class PollApiTests(TestCase):
             format="json",
         )
         self.assertEqual(second_vote.status_code, 409)
+        self.assertEqual(second_vote.json()["detail"], "You have already submitted your vote.")
 
     def test_vote_succeeds_even_if_realtime_broadcast_fails(self):
         create_response = self._create_poll()
