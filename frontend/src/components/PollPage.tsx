@@ -24,25 +24,34 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
   useEffect(() => {
     let mounted = true
 
-    const loadPoll = async () => {
+    const loadPoll = async (silent = false) => {
       try {
         const payload = await apiRequest<Poll>(`/polls/${pollId}/`)
         if (!mounted) {
           return
         }
         setPoll(payload)
-        setMessage(payload.is_expired ? 'This poll has expired.' : 'Poll loaded successfully.')
+        if (!silent) {
+          setMessage(payload.is_expired ? 'This poll has expired.' : 'Poll loaded successfully.')
+        }
       } catch (error) {
         if (!mounted) {
           return
         }
-        setMessage(error instanceof Error ? error.message : 'Unable to fetch poll.')
+        if (!silent) {
+          setMessage(error instanceof Error ? error.message : 'Unable to fetch poll.')
+        }
       }
     }
 
     loadPoll()
+    const interval = window.setInterval(() => {
+      void loadPoll(true)
+    }, 3000)
+
     return () => {
       mounted = false
+      window.clearInterval(interval)
     }
   }, [pollId])
 
@@ -157,7 +166,9 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
       <div className="section-heading">
         <div>
           <h2>{poll.question}</h2>
-          <p className="sub">Realtime status: {wsState}</p>
+          <p className="sub">
+            Realtime status: {wsState === 'Connected' ? 'Connected' : 'Polling fallback active'}
+          </p>
         </div>
         <button type="button" className="secondary" onClick={onNavigateToDashboard}>
           My Polls
