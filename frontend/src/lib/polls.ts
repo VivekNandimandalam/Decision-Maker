@@ -124,9 +124,12 @@ export function updateOwnedPollQuestion(pollId: string, question: string) {
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: 'include',
+    cache: 'no-store',
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
       ...(init?.headers || {}),
     },
   })

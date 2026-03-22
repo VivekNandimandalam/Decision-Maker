@@ -26,7 +26,7 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
 
     const loadPoll = async (silent = false) => {
       try {
-        const payload = await apiRequest<Poll>(`/polls/${pollId}/`)
+        const payload = await apiRequest<Poll>(`/polls/${pollId}/?_ts=${Date.now()}`)
         if (!mounted) {
           return
         }
