@@ -65,9 +65,10 @@ export function MyPolls({ onNavigateHome, onNavigateToPoll, selectedPollId }: My
           ownedPolls.map(async (item) => {
             try {
               const poll = await apiRequest<Poll>(`/polls/${item.id}/results/`)
-              return [item.id, poll] as const
-            } catch {
-              return null
+              return { id: item.id, poll, missing: false } as const
+            } catch (error) {
+              const isMissing = error instanceof Error && error.message === 'Poll not found.'
+              return { id: item.id, poll: null, missing: isMissing } as const
             }
           }),
         )
@@ -77,12 +78,22 @@ export function MyPolls({ onNavigateHome, onNavigateToPoll, selectedPollId }: My
         }
 
         const next: Record<string, Poll> = {}
+        const missingPollIds: string[] = []
         results.forEach((entry) => {
-          if (entry) {
-            next[entry[0]] = entry[1]
+          if (entry.poll) {
+            next[entry.id] = entry.poll
+          }
+          if (entry.missing) {
+            missingPollIds.push(entry.id)
           }
         })
         setPollsById(next)
+
+        if (missingPollIds.length > 0) {
+          missingPollIds.forEach((pollId) => removeOwnedPoll(pollId))
+          setOwnedPolls(loadOwnedPolls())
+          setMessage('Removed stale polls that no longer exist.')
+        }
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -221,6 +232,19 @@ export function MyPolls({ onNavigateHome, onNavigateToPoll, selectedPollId }: My
       setEditingPollId((prev) => (prev === ownedPoll.id ? null : prev))
       setMessage('Poll deleted successfully.')
     } catch (error) {
+      if (error instanceof Error && error.message === 'Poll not found.') {
+        removeOwnedPoll(ownedPoll.id)
+        setOwnedPolls(loadOwnedPolls())
+        setPollsById((prev) => {
+          const next = { ...prev }
+          delete next[ownedPoll.id]
+          return next
+        })
+        setEditingPollId((prev) => (prev === ownedPoll.id ? null : prev))
+        setMessage('Poll was already gone, so it was removed from this device list.')
+        return
+      }
+
       setMessage(error instanceof Error ? error.message : 'Unable to delete poll.')
     }
   }
