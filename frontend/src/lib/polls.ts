@@ -140,7 +140,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 }
 
 export function buildShareLink(pollId: string) {
-  return `${window.location.origin}/poll/${pollId}/`
+  return `${window.location.origin}/#/poll/${pollId}/`
 }
 
 export function formatTimeRemaining(expiresAt: string): string {

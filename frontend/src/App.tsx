@@ -5,13 +5,24 @@ import { CreatePoll } from './components/CreatePoll'
 import { MyPolls } from './components/MyPolls'
 import { PollPage } from './components/PollPage'
 
+function getRouteSource() {
+  const hash = window.location.hash.replace(/^#/, '')
+  return hash || window.location.pathname
+}
+
 function App() {
-  const [path, setPath] = useState(window.location.pathname)
+  const [path, setPath] = useState(getRouteSource())
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname)
+    const syncRoute = () => setPath(getRouteSource())
+    const onPopState = () => syncRoute()
+    const onHashChange = () => syncRoute()
     window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
+    window.addEventListener('hashchange', onHashChange)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      window.removeEventListener('hashchange', onHashChange)
+    }
   }, [])
 
   const route = useMemo(() => {
@@ -33,8 +44,13 @@ function App() {
   }, [path])
 
   const navigate = (nextPath: string) => {
-    window.history.pushState({}, '', nextPath)
-    setPath(nextPath)
+    const normalizedPath = nextPath.startsWith('/') ? nextPath : `/${nextPath}`
+    const nextHash = `#${normalizedPath}`
+    if (window.location.hash !== nextHash) {
+      window.location.hash = normalizedPath
+    } else {
+      setPath(normalizedPath)
+    }
   }
 
   return (
