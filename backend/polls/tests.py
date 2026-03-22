@@ -50,6 +50,12 @@ class PollApiTests(TestCase):
         duplicate_options = self._create_poll(options=["A", "A"])
         self.assertEqual(duplicate_options.status_code, 400)
 
+    def test_create_poll_accepts_one_minute_expiration_with_small_request_delay(self):
+        response = self._create_poll(
+            expires_at=(timezone.now() + timedelta(seconds=59)).isoformat(),
+        )
+        self.assertEqual(response.status_code, 201)
+
     def test_single_select_vote_requires_name_and_blocks_duplicate_device_vote(self):
         create_response = self._create_poll()
         payload = create_response.json()

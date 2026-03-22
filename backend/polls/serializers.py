@@ -5,6 +5,14 @@ from datetime import timedelta
 
 
 MIN_EXPIRATION_DELTA = timedelta(minutes=1)
+EXPIRATION_VALIDATION_GRACE = timedelta(seconds=5)
+
+
+def validate_minimum_expiration(value):
+    minimum_allowed = timezone.now() + MIN_EXPIRATION_DELTA - EXPIRATION_VALIDATION_GRACE
+    if value < minimum_allowed:
+        raise serializers.ValidationError('Expiration time must be at least 1 minute in the future.')
+    return value
 
 
 class PollCreateSerializer(serializers.Serializer):
@@ -32,9 +40,7 @@ class PollCreateSerializer(serializers.Serializer):
         return cleaned
 
     def validate_expires_at(self, value):
-        if value < timezone.now() + MIN_EXPIRATION_DELTA:
-            raise serializers.ValidationError('Expiration time must be at least 1 minute in the future.')
-        return value
+        return validate_minimum_expiration(value)
 
 
 class PollUpdateSerializer(serializers.Serializer):
@@ -63,9 +69,7 @@ class PollUpdateSerializer(serializers.Serializer):
         return cleaned
 
     def validate_expires_at(self, value):
-        if value < timezone.now() + MIN_EXPIRATION_DELTA:
-            raise serializers.ValidationError('Expiration time must be at least 1 minute in the future.')
-        return value
+        return validate_minimum_expiration(value)
 
 
 class VoteSerializer(serializers.Serializer):
