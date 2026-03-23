@@ -31,7 +31,19 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-change-in-production')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 IS_PRODUCTION = not DEBUG
 
-ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
+
+# Production-grade ALLOWED_HOSTS handling
+DJANGO_ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS')
+if IS_PRODUCTION:
+    if not DJANGO_ALLOWED_HOSTS:
+        raise RuntimeError(
+            "DJANGO_ALLOWED_HOSTS environment variable must be set in production. "
+            "Set it to a comma-separated list of allowed domains/hosts, e.g. 'myapp.elasticbeanstalk.com,www.example.com'"
+        )
+    ALLOWED_HOSTS = [host.strip() for host in DJANGO_ALLOWED_HOSTS.split(',') if host.strip()]
+else:
+    # Default for local/dev
+    ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
 
 
 # Application definition
