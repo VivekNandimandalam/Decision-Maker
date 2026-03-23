@@ -10,8 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
+from urllib.parse import urlparse
+
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -80,6 +82,13 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = 'backend.asgi.application'
 
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
+if REDIS_URL and '://' not in REDIS_URL:
+    redis_scheme = os.getenv('REDIS_SCHEME', 'rediss' if IS_PRODUCTION else 'redis').strip() or 'redis'
+    REDIS_URL = f'{redis_scheme}://{REDIS_URL}'
+
+if REDIS_URL and not urlparse(REDIS_URL).path:
+    REDIS_URL = f'{REDIS_URL}/0'
+
 if REDIS_URL:
     CHANNEL_LAYERS = {
         'default': {
