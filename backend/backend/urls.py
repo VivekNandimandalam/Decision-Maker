@@ -21,9 +21,13 @@ from django.urls import include, path
 
 def root_health(request):
     return JsonResponse({'status': 'ok'})
+    
+ def health_check(request):
+     return JsonResponse({"status": "ok"})
 
 urlpatterns = [
     path('', root_health, name='root-health'),
     path('admin/', admin.site.urls),
     path('api/', include('polls.urls')),
+    path('health/', health_check),
 ]
