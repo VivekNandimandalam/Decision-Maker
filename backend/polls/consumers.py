@@ -1,23 +1,43 @@
 import json
+import logging
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .models import Poll
 
+logger = logging.getLogger(__name__)
+
 
 class PollConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.poll_id = self.scope['url_route']['kwargs']['poll_id']
-        self.group_name = f'poll_{self.poll_id}'
+        try:
+            self.poll_id = self.scope['url_route']['kwargs']['poll_id']
+            self.group_name = f'poll_{self.poll_id}'
+            logger.info(f"WebSocket connect attempt for poll_id: {self.poll_id}")
+            logger.info(f"Scope path: {self.scope.get('path')}")
+            logger.info(f"Channel name: {self.channel_name}")
 
-        poll_exists = await self._poll_exists(self.poll_id)
-        if not poll_exists:
-            await self.close(code=4004)
-            return
+            poll_exists = await self._poll_exists(self.poll_id)
+            logger.info(f"Poll exists: {poll_exists}")
+            
+            if not poll_exists:
+                logger.warning(f"Poll {self.poll_id} not found, closing connection")
+                await self.close(code=4004)
+                return
 
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.accept()
+            logger.info(f"Adding to group: {self.group_name}")
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+            
+            logger.info(f"Accepting WebSocket connection")
+            await self.accept()
+            logger.info(f"WebSocket connected for poll_id: {self.poll_id}")
+        except Exception as e:
+            logger.exception(f"Error in WebSocket connect: {e}")
+            try:
+                await self.close(code=1001)
+            except Exception as close_error:
+                logger.exception(f"Error closing connection: {close_error}")
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)

@@ -1,15 +1,36 @@
-asgiref==3.11.1
-channels==4.3.1
-channels-redis==4.2.1
-daphne==4.1.2
+# Core Django
 Django==6.0.3
+djangorestframework==3.16.1
 django-cors-headers==4.9.0
 django-ratelimit==4.1.0
-djangorestframework==3.16.1
-gunicorn==25.1.0
-packaging==26.0
-psycopg2-binary==2.9.11
 python-dotenv==1.2.2
+
+# Database
+psycopg2-binary==2.9.11
+dj-database-url==2.1.0
+
+# Production Server
+gunicorn==25.1.0
+whitenoise==6.6.0
+
+# AWS S3 Static Files
+django-storages==1.14.2
+boto3==1.31.17
+
+# Error Tracking (Optional but Recommended)
+sentry-sdk==1.39.2
+
+# Testing & Development
+requests==2.31.0
+
+# Utilities
+asgiref==3.11.1
+packaging==26.0
 sqlparse==0.5.5
 tzdata==2025.3
-pygments==2.19.2  # CVE-2026-4539: No fix available as of 2026-03-25
+pygments==2.19.2
+
+# DEPRECATED (USE HTTP POLLING INSTEAD)
+# channels==4.3.1
+# channels-redis==4.2.1
+# daphne==4.1.2

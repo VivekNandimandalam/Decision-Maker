@@ -33,7 +33,7 @@ def _is_expired(poll: Poll) -> bool:
     return poll.expires_at <= timezone.now()
 
 
-def _poll_to_payload(poll: Poll) -> dict:
+def _poll_to_payload(poll: Poll, device_token_hash: str = None) -> dict:
     options = poll.options.values("id", "text", "votes").order_by("id")
     options_payload = [
         {
@@ -70,7 +70,8 @@ def _poll_to_payload(poll: Poll) -> dict:
     voter_activity = list(selections_by_voter.values())
 
     total_votes = sum(option["votes"] for option in options_payload)
-    return {
+    
+    payload = {
         "id": str(poll.id),
         "question": poll.question,
         "multi_select": poll.multi_select,
@@ -85,7 +86,9 @@ def _poll_to_payload(poll: Poll) -> dict:
         "updated_at": poll.updated_at,
         "expired_notified_at": poll.expired_notified_at,
         "latest_vote_at": latest_vote_at,
+        "has_user_voted": bool(device_token_hash and device_token_hash in selections_by_voter),
     }
+    return payload
 
 
 def _broadcast(group: str, event_type: str, payload: dict) -> None:
@@ -222,7 +225,12 @@ class PollDetailView(APIView):
 
         _mark_expired_if_needed(poll)
         poll.refresh_from_db()
-        return Response(_poll_to_payload(poll))
+        
+        # Include voting status for the current device
+        device_token = request.COOKIES.get("voter_device_token")
+        device_token_hash = _hash_token(device_token) if device_token else None
+        
+        return Response(_poll_to_payload(poll, device_token_hash))
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="PATCH", block=True))
     def patch(self, request, poll_id):
@@ -316,8 +324,17 @@ class PollVoteView(APIView):
         device_token = request.COOKIES.get("voter_device_token") or secrets.token_urlsafe(24)
         device_token_hash = _hash_token(device_token)
 
+        logger.info(f"Vote attempt - Poll: {poll.id}")
+        logger.info(f"Device token from cookie: {request.COOKIES.get('voter_device_token') is not None}")
+        logger.info(f"Device token hash: {device_token_hash[:10]}...")
+        logger.info(f"All cookies: {list(request.COOKIES.keys())}")
+
         with transaction.atomic():
-            if VoteRecord.objects.filter(poll=poll, device_token_hash=device_token_hash).exists():
+            existing_vote = VoteRecord.objects.filter(poll=poll, device_token_hash=device_token_hash).exists()
+            logger.info(f"Existing vote found: {existing_vote}")
+            
+            if existing_vote:
+                logger.warning(f"Duplicate vote attempt for poll {poll.id} from device {device_token_hash[:10]}...")
                 return Response(
                     {"detail": "You have already submitted your vote."},
                     status=status.HTTP_409_CONFLICT,
@@ -341,7 +358,7 @@ class PollVoteView(APIView):
         poll.refresh_from_db()
         _broadcast_poll_update(poll)
 
-        response = Response(_poll_to_payload(poll), status=status.HTTP_201_CREATED)
+        response = Response(_poll_to_payload(poll, device_token_hash), status=status.HTTP_201_CREATED)
         if "voter_device_token" not in request.COOKIES:
             response.set_cookie(
                 "voter_device_token",
@@ -349,6 +366,6 @@ class PollVoteView(APIView):
                 max_age=60 * 60 * 24 * 365,
                 httponly=True,
                 samesite="Lax",
-                secure=settings.SESSION_COOKIE_SECURE,
+                secure=False,  # Development: localhost without HTTPS
             )
         return response
