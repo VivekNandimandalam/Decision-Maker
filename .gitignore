@@ -22,3 +22,12 @@ Thumbs.db
 
 # Assignment brief and private docs
 NATIONAL COLLEGE OF IRELAND.pdf
+
+# SSH Keys and Secrets
+*.pem
+*.key
+*.pub
+.env
+.env.local
+.env.*.local
+secrets/

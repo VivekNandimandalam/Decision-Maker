@@ -155,32 +155,39 @@ jobs:
           # Add EC2 to known_hosts
           ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
           
+          # Clean venv on remote to avoid permission conflicts
+          ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST \
+            "rm -rf /home/ec2-user/Decision-Maker/backend/venv 2>/dev/null || true"
+          
           # Sync code to EC2
-          rsync -avz --delete \
+          rsync -avz \
             -e "ssh -i ~/.ssh/decision-maker-key.pem" \
             --exclude='.git' \
             --exclude='node_modules' \
-            --exclude='.venv' \
+            --exclude='backend/venv' \
             --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='*.pem' \
             . $EC2_USER@$EC2_HOST:/home/ec2-user/Decision-Maker/
           
           # Deploy on EC2
           ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST << 'DEPLOY'
+          set -e
           cd /home/ec2-user/Decision-Maker
           
           # Backend
           cd backend
+          python -m venv venv
+          source venv/bin/activate
           pip install -r requirements.txt
           python manage.py migrate
+          deactivate
           
-          # Frontend
+          # Frontend  
           cd ../frontend
           npm ci
           npm run build
-          
-          # Copy frontend build to web server
-          sudo cp -r dist/* /var/www/html/
-          sudo chown -R ec2-user:ec2-user /var/www/html/
           
           # Restart services
           sudo systemctl restart gunicorn
