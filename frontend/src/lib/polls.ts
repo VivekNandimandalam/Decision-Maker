@@ -23,6 +23,7 @@ export type Poll = {
   share_url: string
   created_at: string
   updated_at: string
+  has_user_voted?: boolean
 }
 
 export type CreatedPoll = Poll & {

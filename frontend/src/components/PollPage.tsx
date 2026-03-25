@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { apiRequest, formatTimeRemaining, Poll, WS_BASE_URL } from '../lib/polls'
+import { apiRequest, formatTimeRemaining, Poll } from '../lib/polls'
 
 type PollPageProps = {
   pollId: string
@@ -12,13 +12,13 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   const [message, setMessage] = useState('Loading poll...')
   const [timeRemaining, setTimeRemaining] = useState('')
-  const [wsState, setWsState] = useState('Disconnected')
   const [voterName, setVoterName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [hasVoted, setHasVoted] = useState(false)
 
   const canVote = useMemo(
-    () => !!poll && !poll.is_expired && voterName.trim().length > 0,
-    [poll, voterName],
+    () => !!poll && !poll.is_expired && voterName.trim().length > 0 && !hasVoted && !poll.has_user_voted,
+    [poll, voterName, hasVoted],
   )
 
   useEffect(() => {
@@ -74,29 +74,31 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
   }, [poll])
 
   useEffect(() => {
-    const socket = new WebSocket(`${WS_BASE_URL}/polls/${pollId}/`)
+    let pollInterval: ReturnType<typeof setInterval> | null = null
 
-    socket.onopen = () => setWsState('Connected')
-    socket.onclose = () => setWsState('Disconnected')
-    socket.onerror = () => setWsState('Error')
-    socket.onmessage = (event) => {
+    const fetchLatestPoll = async () => {
       try {
-        const parsed = JSON.parse(event.data) as { type?: string; payload?: Poll | { id: string } }
-        if ((parsed.type === 'poll.updated' || parsed.type === 'poll.expired') && parsed.payload) {
-          setPoll(parsed.payload as Poll)
-          setMessage(parsed.type === 'poll.expired' ? 'Poll expired.' : 'Live update received.')
+        const payload = await apiRequest<Poll>(`/polls/${pollId}/?_ts=${Date.now()}`)
+        setPoll(payload)
+        // Update hasVoted based on backend's voting status
+        if (payload.has_user_voted) {
+          setHasVoted(true)
         }
-        if (parsed.type === 'poll.deleted') {
-          setMessage('This poll has been deleted by its creator.')
-          setPoll(null)
-        }
-      } catch {
-        setMessage('Received malformed realtime message.')
+      } catch (error) {
+        console.error('Failed to fetch latest poll:', error)
       }
     }
 
+    // Poll every 2 seconds for real-time updates
+    pollInterval = setInterval(fetchLatestPoll, 2000)
+
+    // Also fetch immediately
+    void fetchLatestPoll()
+
     return () => {
-      socket.close()
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
     }
   }, [pollId])
 
@@ -138,10 +140,16 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
         }),
       })
       setPoll(payload)
-      setMessage('Vote submitted successfully.')
+      setHasVoted(true)
+      setMessage('Vote submitted successfully!')
       setSelectedOptionIds([])
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Vote submission failed.')
+      const errorMsg = error instanceof Error ? error.message : 'Vote submission failed.'
+      setMessage(errorMsg)
+      // Check if already voted error
+      if (errorMsg.includes('already submitted your vote')) {
+        setHasVoted(true)
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -167,7 +175,7 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
         <div>
           <h2>{poll.question}</h2>
           <p className="sub">
-            Realtime status: {wsState === 'Connected' ? 'Connected' : 'Polling fallback active'}
+            Status: Polling for live updates every 2 seconds
           </p>
         </div>
         <button type="button" className="secondary" onClick={onNavigateToDashboard}>
@@ -210,7 +218,7 @@ export function PollPage({ pollId, onNavigateToDashboard }: PollPageProps) {
 
       <div className="row">
         <button type="button" onClick={submitVote} disabled={!canVote || isSubmitting}>
-          {poll.is_expired ? 'Poll expired' : isSubmitting ? 'Submitting...' : 'Submit Vote'}
+          {poll.is_expired ? 'Poll expired' : hasVoted || poll.has_user_voted ? 'Already voted' : isSubmitting ? 'Submitting...' : 'Submit Vote'}
         </button>
       </div>
 

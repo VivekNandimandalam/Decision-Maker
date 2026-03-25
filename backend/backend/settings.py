@@ -54,7 +54,6 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'channels',
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
@@ -91,31 +90,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
-ASGI_APPLICATION = 'backend.asgi.application'
-
-REDIS_URL = os.getenv('REDIS_URL', '').strip()
-if REDIS_URL and '://' not in REDIS_URL:
-    redis_scheme = os.getenv('REDIS_SCHEME', 'rediss' if IS_PRODUCTION else 'redis').strip() or 'redis'
-    REDIS_URL = f'{redis_scheme}://{REDIS_URL}'
-
-if REDIS_URL and not urlparse(REDIS_URL).path:
-    REDIS_URL = f'{REDIS_URL}/0'
-
-if REDIS_URL:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {
-                'hosts': [REDIS_URL],
-            },
-        }
-    }
-else:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels.layers.InMemoryChannelLayer',
-        }
-    }
 
 
 # Database
