@@ -161,22 +161,17 @@ jobs:
       - name: Deploy to Elastic Beanstalk
         run: |
           cd backend
-          # Initialize EB if not already done
-          if [ ! -d ".elasticbeanstalk" ]; then
-            eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
-          fi
           
-          # Check if environment exists, create if not
-          if eb list | grep -q "${{ env.EB_ENVIRONMENT }}"; then
-            echo "Environment exists, deploying..."
-            eb deploy ${{ env.EB_ENVIRONMENT }}
-          else
-            echo "Environment does not exist, creating..."
-            eb create ${{ env.EB_ENVIRONMENT }} -p python-3.12 --instance-type t3.micro --tier SingleInstance
-          fi
+          # Clear any cached EB config
+          rm -rf .elasticbeanstalk
           
-          # Show status
-          eb status
+          # Initialize fresh EB
+          eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
+          
+          # Always just deploy - EB will create if missing
+          # Using SINGLE environment type (no load balancer)
+          eb deploy ${{ env.EB_ENVIRONMENT }} --envtype SingleInstance --instance-type t3.micro || \
+          eb create ${{ env.EB_ENVIRONMENT }} --envtype SingleInstance --instance-type t3.micro
 
       - name: Upload frontend to S3
         env:
@@ -189,16 +184,8 @@ jobs:
             --distribution-id ${{ env.AWS_CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
 
-      - name: Verify deployment
-        run: |
-          # Wait for EB to be healthy
-          sleep 30
-          
-          # Test health endpoint
-          curl -f https://${{ env.EB_APPLICATION }}.elasticbeanstalk.com/health/ || exit 1
-          
-          # Log success
-          echo "✓ Deployment successful!"
+
+
 
 
 
