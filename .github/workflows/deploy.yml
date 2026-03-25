@@ -9,7 +9,7 @@ on:
 env:
   AWS_REGION: us-east-1
   EB_ENVIRONMENT: production
-  EB_APPLICATION: polling-app
+  EB_APPLICATION: decisionmaker-backend
 
 jobs:
   test-backend:
