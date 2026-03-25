@@ -40,7 +40,7 @@ class VoteRecord(models.Model):
 
 	class Meta:
 		constraints = [
-			models.UniqueConstraint(fields=['poll', 'device_token_hash'], name='unique_vote_per_device_per_poll'),
+			models.UniqueConstraint(fields=['poll', 'option', 'device_token_hash'], name='unique_vote_per_device_per_option_per_poll'),
 		]
 		indexes = [
 			models.Index(fields=['poll', 'device_token_hash']),
