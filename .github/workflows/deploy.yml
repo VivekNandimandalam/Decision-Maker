@@ -135,54 +135,59 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Install EB CLI
-        run: |
-          pip install awsebcli
-          eb --version
-
-      - name: Build backend
-        run: |
-          cd backend
-          pip install -r requirements.txt
-
       - name: Build frontend
         run: |
           cd frontend
           npm ci
           npm run build
 
-      - name: Deploy to Elastic Beanstalk
-        run: |
-          cd backend
-          
-          # Clear any cached EB config
-          rm -rf .elasticbeanstalk
-          
-          # Initialize fresh EB
-          eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
-          
-          # Always just deploy - EB will create if missing
-          # Using SINGLE environment type (no load balancer)
-          eb deploy ${{ env.EB_ENVIRONMENT }} --envtype SingleInstance --instance-type t3.micro || \
-          eb create ${{ env.EB_ENVIRONMENT }} --envtype SingleInstance --instance-type t3.micro
-
-      - name: Upload frontend to S3
+      - name: Deploy to EC2
         env:
-          AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
-          AWS_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ec2-user
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          aws s3 sync frontend/dist/ s3://${{ env.AWS_S3_BUCKET_NAME }}/ --delete
-          # Invalidate CloudFront cache
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ env.AWS_CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+          # Write SSH key to file
+          mkdir -p ~/.ssh
+          echo "$EC2_KEY" > ~/.ssh/decision-maker-key.pem
+          chmod 600 ~/.ssh/decision-maker-key.pem
+          
+          # Add EC2 to known_hosts
+          ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Sync code to EC2
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/decision-maker-key.pem" \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            . $EC2_USER@$EC2_HOST:/home/ec2-user/Decision-Maker/
+          
+          # Deploy on EC2
+          ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST << 'DEPLOY'
+          cd /home/ec2-user/Decision-Maker
+          
+          # Backend
+          cd backend
+          pip install -r requirements.txt
+          python manage.py migrate
+          
+          # Frontend
+          cd ../frontend
+          npm ci
+          npm run build
+          
+          # Copy frontend build to web server
+          sudo cp -r dist/* /var/www/html/
+          sudo chown -R ec2-user:ec2-user /var/www/html/
+          
+          # Restart services
+          sudo systemctl restart gunicorn
+          sudo systemctl restart nginx
+          
+          echo "✓ Deployment successful!"
+          DEPLOY
 
 
 
