@@ -3,8 +3,6 @@ import logging
 import secrets
 from html import escape
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
@@ -90,46 +88,6 @@ def _poll_to_payload(poll: Poll, device_token_hash: str = None) -> dict:
     }
     return payload
 
-
-def _broadcast(group: str, event_type: str, payload: dict) -> None:
-    channel_layer = get_channel_layer()
-    if channel_layer is None:
-        return
-    async_to_sync(channel_layer.group_send)(
-        group,
-        {
-            "type": "poll.event",
-            "event_type": event_type,
-            "payload": payload,
-        },
-    )
-
-
-def _safe_broadcast(group: str, event_type: str, payload: dict, log_message: str) -> None:
-    try:
-        _broadcast(group, event_type, payload)
-    except Exception:
-        logger.exception(log_message)
-
-
-def _broadcast_poll_update(poll: Poll) -> None:
-    _safe_broadcast(
-        f"poll_{poll.id}",
-        "poll.updated",
-        _poll_to_payload(poll),
-        "Poll %s was updated but the realtime update broadcast failed." % poll.id,
-    )
-
-
-def _broadcast_poll_deleted(poll_id: str) -> None:
-    _safe_broadcast(
-        f"poll_{poll_id}",
-        "poll.deleted",
-        {"id": str(poll_id)},
-        "Poll %s was deleted but the realtime delete broadcast failed." % poll_id,
-    )
-
-
 def _mark_expired_if_needed(poll: Poll) -> bool:
     if not _is_expired(poll) or poll.expired_notified_at is not None:
         return False
@@ -137,12 +95,7 @@ def _mark_expired_if_needed(poll: Poll) -> bool:
     poll.expired_notified_at = timezone.now()
     poll.save(update_fields=["expired_notified_at", "updated_at"])
     poll.refresh_from_db()
-    _safe_broadcast(
-        f"poll_{poll.id}",
-        "poll.expired",
-        _poll_to_payload(poll),
-        "Poll %s expired but the realtime expiration broadcast failed." % poll.id,
-    )
+    # WebSocket broadcast removed - using HTTP polling instead
     return True
 
 
@@ -259,7 +212,7 @@ class PollDetailView(APIView):
             poll.vote_records.all().delete()
 
         poll.refresh_from_db()
-        _broadcast_poll_update(poll)
+        # WebSocket broadcast removed - using HTTP polling instead
         return Response(_poll_to_payload(poll))
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="DELETE", block=True))
@@ -274,7 +227,7 @@ class PollDetailView(APIView):
 
         poll_identifier = str(poll.id)
         poll.delete()
-        _broadcast_poll_deleted(poll_identifier)
+        # WebSocket broadcast removed - using HTTP polling instead
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -356,7 +309,7 @@ class PollVoteView(APIView):
                 PollOption.objects.filter(id=option.id).update(votes=F("votes") + 1)
 
         poll.refresh_from_db()
-        _broadcast_poll_update(poll)
+        # WebSocket broadcast removed - using HTTP polling instead
 
         response = Response(_poll_to_payload(poll, device_token_hash), status=status.HTTP_201_CREATED)
         if "voter_device_token" not in request.COOKIES:
