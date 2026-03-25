@@ -172,7 +172,7 @@ jobs:
             eb deploy ${{ env.EB_ENVIRONMENT }}
           else
             echo "Environment does not exist, creating..."
-            eb create ${{ env.EB_ENVIRONMENT }} -p python-3.12 --instance-type t3.micro
+            eb create ${{ env.EB_ENVIRONMENT }} -p python-3.12 --instance-type t3.micro --tier SingleInstance
           fi
           
           # Show status
