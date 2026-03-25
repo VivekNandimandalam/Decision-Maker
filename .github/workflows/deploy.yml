@@ -163,7 +163,7 @@ jobs:
           cd backend
           # Initialize EB if not already done
           if [ ! -d ".elasticbeanstalk" ]; then
-            eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }} --no-cc
+            eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
           fi
           
           # Create environment if it doesn't exist, otherwise update
