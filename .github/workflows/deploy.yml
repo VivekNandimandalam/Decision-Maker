@@ -155,6 +155,10 @@ jobs:
           # Add EC2 to known_hosts
           ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
           
+          # Fix ownership before rsync
+          ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST \
+            "sudo chown -R ec2-user:ec2-user /home/ec2-user/Decision-Maker 2>/dev/null || true"
+          
           # Clean venv on remote to avoid permission conflicts
           ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST \
             "rm -rf /home/ec2-user/Decision-Maker/backend/venv 2>/dev/null || true"
