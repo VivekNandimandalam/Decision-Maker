@@ -166,8 +166,8 @@ jobs:
             eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
           fi
           
-          # Deploy with single instance (free tier eligible, no load balancer)
-          eb deploy ${{ env.EB_ENVIRONMENT }} --single
+          # Deploy to existing environment
+          eb deploy ${{ env.EB_ENVIRONMENT }}
           
           # Show status
           eb status
