@@ -166,8 +166,14 @@ jobs:
             eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }}
           fi
           
-          # Deploy to existing environment
-          eb deploy ${{ env.EB_ENVIRONMENT }}
+          # Check if environment exists, create if not
+          if eb list | grep -q "${{ env.EB_ENVIRONMENT }}"; then
+            echo "Environment exists, deploying..."
+            eb deploy ${{ env.EB_ENVIRONMENT }}
+          else
+            echo "Environment does not exist, creating..."
+            eb create ${{ env.EB_ENVIRONMENT }} -p python-3.12 --instance-type t3.micro
+          fi
           
           # Show status
           eb status
