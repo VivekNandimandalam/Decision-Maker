@@ -151,7 +151,6 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-          pip install https://github.com/aws/aws-elastic-beanstalk-cli-bundle/releases/download/v3.20.2/aws-elastic-beanstalk-cli-bundle.zip
 
       - name: Build frontend
         run: |
