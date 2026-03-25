@@ -180,6 +180,20 @@ jobs:
           set -e
           cd /home/ec2-user/Decision-Maker
           
+          # Create .env file with RDS credentials
+          cat > backend/.env << 'ENV'
+          DB_ENGINE=postgres
+          DB_NAME=postgres
+          DB_USER=postgres
+          DB_PASSWORD=Nexon8918
+          DB_HOST=cloud-devopssec.cepayqwemfsb.us-east-1.rds.amazonaws.com
+          DB_PORT=5432
+          DB_SSLMODE=require
+          DJANGO_SECRET_KEY=your-secret-key-change-this-in-production
+          DJANGO_DEBUG=False
+          DJANGO_ALLOWED_HOSTS=3.87.38.185,localhost,127.0.0.1
+          ENV
+          
           # Backend
           cd backend
           python3 -m venv venv
@@ -191,6 +205,7 @@ jobs:
           # Frontend  
           cd ../frontend
           npm ci
+          unset VITE_API_BASE_URL
           npm run build
           
           # Restart services
