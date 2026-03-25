@@ -15,7 +15,7 @@ whitenoise==6.6.0
 
 # AWS S3 Static Files
 django-storages==1.14.2
-boto3==1.31.17
+boto3>=1.26,<2.0
 
 # Error Tracking (Optional but Recommended)
 sentry-sdk==1.39.2

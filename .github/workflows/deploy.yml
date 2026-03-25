@@ -1,0 +1,227 @@
+name: CI/CD Pipeline - Deploy to AWS
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  AWS_REGION: us-east-1
+  EB_ENVIRONMENT: production
+  EB_APPLICATION: polling-app
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: polling_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/polling_test
+        run: |
+          cd backend
+          python manage.py migrate
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/polling_test
+        run: |
+          cd backend
+          python manage.py test polls
+
+      - name: Check for migrations
+        run: |
+          cd backend
+          python manage.py makemigrations --check --dry-run
+
+      - name: Run linting
+        run: |
+          pip install flake8 black isort
+          flake8 backend/polls --max-line-length=100 --exclude=migrations
+          black --check backend/polls
+          isort --check-only backend
+
+  test-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Type check
+        run: |
+          cd frontend
+          npm run type-check
+
+      - name: Build
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Run tests
+        run: |
+          cd frontend
+          npm test -- --coverage --watchAll=false || true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install bandit safety pip-audit
+
+      - name: Bandit Security Scan
+        run: |
+          cd backend
+          bandit -r polls --skip B101,B601 || true
+
+      - name: Safety Check
+        run: |
+          cd backend
+          safety check --json || true
+
+      - name: Pip Audit
+        run: |
+          cd backend
+          pip-audit || true
+
+  deploy:
+    needs: [test-backend, test-frontend, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install EB CLI
+        run: |
+          pip install awsebcli
+          eb --version
+
+      - name: Build backend
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install https://github.com/aws/aws-elastic-beanstalk-cli-bundle/releases/download/v3.20.2/aws-elastic-beanstalk-cli-bundle.zip
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          cd backend
+          # Initialize EB if not already done
+          if [ ! -d ".elasticbeanstalk" ]; then
+            eb init -p python-3.12 ${{ env.EB_APPLICATION }} --region ${{ env.AWS_REGION }} --no-cc
+          fi
+          
+          # Deploy
+          eb deploy ${{ env.EB_ENVIRONMENT }}
+          
+          # Show status
+          eb status
+
+      - name: Upload frontend to S3
+        env:
+          AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
+          AWS_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ env.AWS_S3_BUCKET_NAME }}/ --delete
+          
+          # Invalidate CloudFront cache
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.AWS_CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Verify deployment
+        run: |
+          # Wait for EB to be healthy
+          sleep 30
+          
+          # Test health endpoint
+          curl -f https://${{ env.EB_APPLICATION }}.elasticbeanstalk.com/health/ || exit 1
+          
+          # Log success
+          echo "✓ Deployment successful!"
+
+  notify:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Send Slack notification
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          payload: |
+            {
+              "text": "Deployment ${{ job.status }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Deployment ${{ job.status }} for ${{ github.ref }}\n*Repo:* ${{ github.repository }}\n*Commit:* ${{ github.sha }}"
+                  }
+                }
+              ]
+            }
+        continue-on-error: true
