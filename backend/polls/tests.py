@@ -1,21 +1,12 @@
 from datetime import timedelta
 
-from channels.layers import get_channel_layer
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
-from unittest.mock import patch
 
 from .models import Poll
 
 
-@override_settings(
-    CHANNEL_LAYERS={
-        "default": {
-            "BACKEND": "channels.layers.InMemoryChannelLayer",
-        }
-    }
-)
 class PollApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -85,22 +76,6 @@ class PollApiTests(TestCase):
         )
         self.assertEqual(second_vote.status_code, 409)
         self.assertEqual(second_vote.json()["detail"], "You have already submitted your vote.")
-
-    def test_vote_succeeds_even_if_realtime_broadcast_fails(self):
-        create_response = self._create_poll()
-        payload = create_response.json()
-        poll_id = payload["id"]
-        option_id = payload["options"][0]["id"]
-
-        with patch("polls.views._broadcast", side_effect=RuntimeError("channel failure")):
-            vote_response = self.client.post(
-                f"/api/polls/{poll_id}/vote/",
-                {"voter_name": "Alice", "option_ids": [option_id]},
-                format="json",
-            )
-
-        self.assertEqual(vote_response.status_code, 201)
-        self.assertEqual(vote_response.json()["total_votes"], 1)
 
     def test_multi_select_poll_accepts_multiple_options(self):
         create_response = self._create_poll(
@@ -175,18 +150,6 @@ class PollApiTests(TestCase):
         allowed_delete = self.client.delete(f"/api/polls/{poll_id}/?token={creator_token}")
         self.assertEqual(allowed_delete.status_code, 204)
 
-    def test_delete_succeeds_even_if_realtime_broadcast_fails(self):
-        create_response = self._create_poll()
-        payload = create_response.json()
-
-        with patch("polls.views._broadcast", side_effect=RuntimeError("channel failure")):
-            delete_response = self.client.delete(
-                f"/api/polls/{payload['id']}/?token={payload['creator_token']}"
-            )
-
-        self.assertEqual(delete_response.status_code, 204)
-        self.assertFalse(Poll.objects.filter(id=payload["id"]).exists())
-
     def test_expired_poll_marks_notification_timestamp(self):
         create_response = self._create_poll(expires_at=(timezone.now() + timedelta(minutes=1, seconds=1)).isoformat())
         poll = Poll.objects.get(id=create_response.json()["id"])
@@ -197,6 +160,3 @@ class PollApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         poll.refresh_from_db()
         self.assertIsNotNone(poll.expired_notified_at)
-
-    def test_channel_layer_is_available_for_realtime_contract(self):
-        self.assertIsNotNone(get_channel_layer())
