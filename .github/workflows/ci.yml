@@ -137,21 +137,28 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy frontend to S3
+      - name: Upload frontend to S3
         if: env.S3_BUCKET_FRONTEND != '' && env.AWS_REGION != ''
-        run: aws s3 sync frontend/dist "s3://$S3_BUCKET_FRONTEND" --delete
+        run: |
+          echo "Uploading to S3 bucket: $S3_BUCKET_FRONTEND"
+          aws s3 sync frontend/dist "s3://$S3_BUCKET_FRONTEND" --delete --region "$AWS_REGION" --debug
 
       - name: Invalidate CloudFront cache
         if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
-        run: aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+        run: |
+          echo "Invalidating CloudFront distribution: $CLOUDFRONT_DISTRIBUTION_ID"
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+
 
       - name: Package backend application
         id: package_backend
         if: env.EB_APPLICATION_NAME != '' && env.EB_ENVIRONMENT_NAME != '' && env.EB_DEPLOY_BUCKET != ''
         shell: bash
         run: |
+          set -e
           VERSION="${GITHUB_SHA::12}"
           ZIP_NAME="backend-$VERSION.zip"
+          echo "Packaging backend: VERSION=$VERSION, ZIP_NAME=$ZIP_NAME"
           cd backend
           zip -r "../$ZIP_NAME" . -x ".venv/*" "db.sqlite3" "__pycache__/*" "*.pyc"
           cd ..
@@ -160,7 +167,9 @@ jobs:
 
       - name: Upload backend bundle to S3
         if: steps.package_backend.outputs.eb_version != '' && steps.package_backend.outputs.eb_zip != ''
-        run: aws s3 cp "${{ steps.package_backend.outputs.eb_zip }}" "s3://$EB_DEPLOY_BUCKET/${{ steps.package_backend.outputs.eb_zip }}"
+        run: |
+          echo "Uploading backend ZIP: ${{ steps.package_backend.outputs.eb_zip }} to bucket: $EB_DEPLOY_BUCKET"
+          aws s3 cp "${{ steps.package_backend.outputs.eb_zip }}" "s3://$EB_DEPLOY_BUCKET/${{ steps.package_backend.outputs.eb_zip }}"
 
       - name: Create Elastic Beanstalk application version
         if: steps.package_backend.outputs.eb_version != '' && steps.package_backend.outputs.eb_zip != ''
