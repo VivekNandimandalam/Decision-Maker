@@ -10,8 +10,8 @@ psycopg2-binary==2.9.11
 dj-database-url==2.1.0
 
 # Production Server
-gunicorn==25.1.0
-whitenoise==6.6.0
+gunicorn==23.0.0
+whitenoise==6.4.0
 
 # AWS S3 Static Files
 django-storages==1.14.2
@@ -24,11 +24,11 @@ sentry-sdk==1.39.2
 requests==2.31.0
 
 # Utilities
-asgiref==3.11.1
-packaging==26.0
-sqlparse==0.5.5
-tzdata==2025.3
-pygments==2.19.2
+asgiref==3.7.2
+packaging==23.2
+sqlparse==0.4.4
+tzdata==2024.1
+pygments==2.15.1
 
 # DEPRECATED (USE HTTP POLLING INSTEAD)
 # channels==4.3.1
