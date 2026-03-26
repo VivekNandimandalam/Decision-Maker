@@ -183,7 +183,12 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           python manage.py migrate --noinput
-          python manage.py collectstatic --noinput
+          if python -c "import os,sys,django; os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.settings'); django.setup(); from django.conf import settings; sys.exit(0 if getattr(settings,'STATIC_ROOT',None) else 1)"
+          then
+            python manage.py collectstatic --noinput
+          else
+            echo "Skipping collectstatic: STATIC_ROOT is not configured for current settings"
+          fi
           deactivate
 
           # Frontend
