@@ -135,83 +135,54 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: Deploy to EC2
+      - name: Deploy to EC2 via SSH
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ec2-user
           EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          # Write SSH key to file
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_KEY" ]; then
+            echo "Missing one or more required secrets: EC2_HOST, EC2_SSH_KEY"
+            exit 1
+          fi
+
+          # Write SSH key
           mkdir -p ~/.ssh
           echo "$EC2_KEY" > ~/.ssh/decision-maker-key.pem
           chmod 600 ~/.ssh/decision-maker-key.pem
-          
-          # Add EC2 to known_hosts
+
+          # Trust host key for non-interactive SSH
           ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          # Fix ownership before rsync
-          ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST \
-            "sudo chown -R ec2-user:ec2-user /home/ec2-user/Decision-Maker 2>/dev/null || true"
-          
-          # Clean venv on remote to avoid permission conflicts
-          ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST \
-            "rm -rf /home/ec2-user/Decision-Maker/backend/venv 2>/dev/null || true"
-          
-          # Sync code to EC2
-          rsync -avz \
-            -e "ssh -i ~/.ssh/decision-maker-key.pem" \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='backend/venv' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='.env' \
-            --exclude='*.pem' \
-            . $EC2_USER@$EC2_HOST:/home/ec2-user/Decision-Maker/
-          
-          # Deploy on EC2
+
+          # Deploy on EC2 host
           ssh -i ~/.ssh/decision-maker-key.pem $EC2_USER@$EC2_HOST << 'DEPLOY'
           set -e
           cd /home/ec2-user/Decision-Maker
-          
-          # Create .env file with RDS credentials
-          cat > backend/.env << 'ENV'
-          DB_ENGINE=postgres
-          DB_NAME=postgres
-          DB_USER=postgres
-          DB_PASSWORD=Nexon8918
-          DB_HOST=cloud-devopssec.cepayqwemfsb.us-east-1.rds.amazonaws.com
-          DB_PORT=5432
-          DB_SSLMODE=require
-          DJANGO_SECRET_KEY=your-secret-key-change-this-in-production
-          DJANGO_DEBUG=False
-          DJANGO_ALLOWED_HOSTS=3.87.38.185,localhost,127.0.0.1
-          ENV
-          
+
+          # Pull latest changes from main branch
+          git pull origin main
+
           # Backend
           cd backend
-          python3 -m venv venv
+          if [ ! -d venv ]; then
+            python3.12 -m venv venv || python3 -m venv venv
+          fi
           source venv/bin/activate
+          pip install --upgrade pip
           pip install -r requirements.txt
-          python3 manage.py migrate
+          python manage.py migrate --noinput
+          python manage.py collectstatic --noinput
           deactivate
-          
-          # Frontend  
+
+          # Frontend
           cd ../frontend
           npm ci
-          unset VITE_API_BASE_URL
           npm run build
-          
+
           # Restart services
           sudo systemctl restart gunicorn
           sudo systemctl restart nginx
-          
+
           echo "✓ Deployment successful!"
           DEPLOY
 
