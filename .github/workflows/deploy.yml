@@ -160,6 +160,9 @@ jobs:
           cd /home/ec2-user/Decision-Maker
 
           # Pull latest changes from main branch
+          if [ -n "$(git status --porcelain)" ]; then
+            git stash push --include-untracked -m "gha-autostash-$(date +%s)" || true
+          fi
           git pull origin main
 
           # Backend
