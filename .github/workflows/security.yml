@@ -1,0 +1,70 @@
+name: Security & Static Analysis
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  backend-security:
+    name: Backend Security & Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Security Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety flake8
+          pip install -r requirements.txt
+
+      - name: Run Bandit (Security Scanner)
+        # B104: specific to hardcoded bind all interfaces, often ok in containers/gunicorn
+        run: bandit -r . -ll -ii --skip B104
+
+      - name: Run Safety (Dependency Check)
+        continue-on-error: true # Don't fail the build if a non-critical dependency has a warning
+        run: safety check
+
+      - name: Run Flake8 (Static Code Analysis)
+        # E501: Ignore line length, F401: Ignore unused imports (common in Django __init__)
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  frontend-security:
+    name: Frontend Security & Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run NPM Audit (Dependency Security)
+        # Fails if vulnerabilities are found
+        continue-on-error: true # Report only, don't block for now
+        run: npm audit
+
+      - name: Run ESLint (Static Code Analysis)
+        run: npm run lint
