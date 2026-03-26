@@ -167,9 +167,18 @@ jobs:
 
           # Backend
           cd backend
-          if [ ! -d venv ]; then
-            python3.12 -m venv venv || python3 -m venv venv
+          if [ ! -f venv/bin/activate ]; then
+            rm -rf venv
+            if command -v python3.12 >/dev/null 2>&1; then
+              python3.12 -m venv venv
+            elif command -v python3 >/dev/null 2>&1; then
+              python3 -m venv venv
+            else
+              echo "Python 3 not found on EC2 host"
+              exit 1
+            fi
           fi
+
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
