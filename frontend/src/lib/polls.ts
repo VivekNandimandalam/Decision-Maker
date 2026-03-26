@@ -44,33 +44,28 @@ function isLocalDevHost(hostname: string) {
 
 function getRuntimeApiBaseUrl() {
   const configured = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '')
-  if (configured) {
-    return configured
-  }
 
   if (typeof window === 'undefined') {
-    return 'http://127.0.0.1:8000/api'
+    return configured || 'http://127.0.0.1:8000/api'
   }
 
   if (isLocalDevHost(window.location.hostname)) {
-    return 'http://127.0.0.1:8000/api'
+    return configured || 'http://127.0.0.1:8000/api'
   }
 
+  // In production/browser usage always stay same-origin to avoid stale hardcoded API domains.
   return `${window.location.origin}/api`
 }
 
 function getRuntimeWsBaseUrl() {
   const configured = import.meta.env.VITE_WS_BASE_URL?.replace(/\/$/, '')
-  if (configured) {
-    return configured
-  }
 
   if (typeof window === 'undefined') {
-    return 'ws://127.0.0.1:8000/ws'
+    return configured || 'ws://127.0.0.1:8000/ws'
   }
 
   if (isLocalDevHost(window.location.hostname)) {
-    return 'ws://127.0.0.1:8000/ws'
+    return configured || 'ws://127.0.0.1:8000/ws'
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
